@@ -1,19 +1,25 @@
-import os
 import gradio as gr
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_community.llms import Together
+import os
 from dotenv import load_dotenv
 from langchain.vectorstores import Chroma
 from langchain.embeddings import HuggingFaceBgeEmbeddings
 
 from agent import get_wikipedia_summary
 
+from langfuse.callback import CallbackHandler
+
 # Carga las variables de entorno desde el archivo .env
 load_dotenv()
 # Accede a la API key utilizando os.environ
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
+LANGFUSE_PRIVATE_API_KEY = os.environ.get("LANGUFUSE_PRIVATE_API_KEY")
+LANGFUSE_PUBLIC_API_KEY = os.environ.get("LANGUFUSE_PUBLIC_API_KEY")
+
+handler = CallbackHandler(LANGFUSE_PUBLIC_API_KEY, LANGFUSE_PRIVATE_API_KEY)
 
 model = Together(
     model="mistralai/Mixtral-8x7B-Instruct-v0.1",
@@ -36,17 +42,18 @@ retriever = load_vector_store.as_retriever(search_kwargs={"k": 1})
 
 
 # Provide a template following the LLM's original chat template.
-template = """ Utiliza la siguiente información para responder a la pregunta del usuario.
-Si no sabes la respuesta, di simplemente que no la sabes, no intentes inventarte una respuesta ya que si te inventas algo, puedes cometer errores.
+template = """Eres un asistente cuya función es responder correctamente a las preguntas del usuario.
+Utiliza la siguiente información para responder a la pregunta del usuario.
+Si no sabes la respuesta, di simplemente que no la sabes, no intentes inventarte una respuesta.
+
 
 Contexto: {context}
 Pregunta: {question}
 
-La vida de muchas personas depende de que tu respuesta sea correcta.
+Solo si el usuario te pide "Busca información en Wikipedia sobre: " ejecuta el siguiente código {SearchInWiki}, si no omite este paso.
+Si lo ejecutas sin que te pregunten, es posible que varias familias mueran.
 Devuelve sólo la respuesta útil que aparece a continuación y nada más.
-Responde solo y exclusivamente con la información que se te ha sido proporcionada.
 Responde siempre en castellano.
-Solo y exclusivamente si el usuario te pide buscar en wikipedia, ejecuta el siguiente código: {SearchInWiki}; en el caso contrario, omite este paso y no lo ejecutes.
 Respuesta útil:"""
 
 prompt = ChatPromptTemplate.from_template(template)
@@ -59,10 +66,15 @@ chain = (
     | StrOutputParser()
 )
 
+sample_prompts = ["¿Cómo se abonará la gratificación al profesorado?",
+                  "Busca información en Wikipedia sobre: Picasso", "Busca información en Wikipedia sobre: Moái"]
+
 
 def get_response(input):
     query = input
     output = chain.invoke(query)
+
+    # , config={"callbacks": [handler]}
 
     return output
 
@@ -80,6 +92,7 @@ iface = gr.Interface(fn=get_response,
                      outputs="text",
                      title="ConserGPT",
                      description="This is a RAG implementation based on Mixtral.",
+                     examples=sample_prompts,
                      allow_flagging='never'
                      )
 
