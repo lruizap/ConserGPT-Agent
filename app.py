@@ -1,12 +1,13 @@
+from langchain_core.messages import HumanMessage, SystemMessage
 import gradio as gr
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
-from langchain_community.llms import Together
 import os
 from dotenv import load_dotenv
 from langchain.vectorstores import Chroma
 from langchain.embeddings import HuggingFaceBgeEmbeddings
+from langchain_openai import ChatOpenAI
 
 from agent import get_wikipedia_summary
 
@@ -21,12 +22,13 @@ LANGFUSE_PUBLIC_API_KEY = os.environ.get("LANGUFUSE_PUBLIC_API_KEY")
 
 handler = CallbackHandler(LANGFUSE_PUBLIC_API_KEY, LANGFUSE_PRIVATE_API_KEY)
 
-model = Together(
+model = ChatOpenAI(
     model="mistralai/Mixtral-8x7B-Instruct-v0.1",
     temperature=0,
     max_tokens=1024,
-    top_k=20,
-    together_api_key=TOGETHER_API_KEY
+    openai_api_key=TOGETHER_API_KEY,
+    base_url='https://api.together.xyz/',
+    callbacks=[handler]
 )
 
 embeddings = HuggingFaceBgeEmbeddings(
@@ -40,23 +42,28 @@ load_vector_store = Chroma(
     persist_directory="stores/ConserGPT/", embedding_function=embeddings)
 retriever = load_vector_store.as_retriever(search_kwargs={"k": 1})
 
-
 # Provide a template following the LLM's original chat template.
-template = """Eres un asistente cuya función es responder correctamente a las preguntas del usuario.
+template = """Eres un asistente cuya función es responder CORRECTAMENTE a las preguntas del usuario.
 Utiliza la siguiente información para responder a la pregunta del usuario.
 Si no sabes la respuesta, di simplemente que no la sabes, no intentes inventarte una respuesta.
 
-
-Contexto: {context}
 Pregunta: {question}
+Contexto: {context}
 
-Solo si el usuario te pide "Busca información en Wikipedia sobre: " ejecuta el siguiente código {SearchInWiki}, si no omite este paso.
+SOLAMENTE si el usuario te pide "Busca información en Wikipedia sobre: " ejecuta el siguiente código {SearchInWiki}, si no omite este paso.
 Si lo ejecutas sin que te pregunten, es posible que varias familias mueran.
 Devuelve sólo la respuesta útil que aparece a continuación y nada más.
-Responde siempre en castellano.
+RESPONDE siempre en castellano.
 Respuesta útil:"""
 
+# messages = [
+#     SystemMessage(content=template),
+#     HumanMessage(content="""Pregunta: {question}"""),
+# ]
+
 prompt = ChatPromptTemplate.from_template(template)
+
+# prompt = ChatPromptTemplate.from_messages(messages)
 
 chain = (
     {"context": retriever, "question": RunnablePassthrough(
@@ -73,8 +80,6 @@ sample_prompts = ["¿Cómo se abonará la gratificación al profesorado?",
 def get_response(input):
     query = input
     output = chain.invoke(query)
-
-    # , config={"callbacks": [handler]}
 
     return output
 

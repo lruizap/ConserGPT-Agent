@@ -3,4 +3,5 @@ ConserGPT
 zephyr-7b-alpha.Q5_K_S.gguf
 __pycache__
 .env
+.vscode
 Agente
